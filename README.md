@@ -7,10 +7,7 @@
 AKUMA Fishing Framework — это мощный инструмент для развертывания фишинговых кампаний, сочетающий в себе **Gophish** для управления атаками и **SMTP-сервер** для доставки писем.  
 Идеально подходит для **Red Team, пентестов и обучения кибербезопасности**.  
 
----
-
    **🔥 特徴 (Features)**  
-
     **1. Двойная архитектура**  
 - **Вариант 1:** Развертывание **Gophish + SMTP на одном хосте** (быстро, для тестов).  
 - **Вариант 2:** Раздельное развертывание **Gophish на одном сервере, SMTP на другом** (масштабируемость, стойкость к блокировкам).  
@@ -37,7 +34,7 @@ AKUMA Fishing Framework — это мощный инструмент для ра
 
    **⚡ 起動コマンド (Activation Sequence)**  
 
-    **1. Вариант: Gophish + SMTP на одном хосте**  
+   **1. Вариант: Gophish + SMTP на одном хосте**  
 ``` 
   Установка SMTP-сервера
 chmod +x setup-smtp-full.sh
@@ -48,13 +45,13 @@ chmod +x install-gophish.sh
 sudo ./install-gophish.sh -d evil.com -a 3333 -p 80 -i 0.0.0.0
 ```
 
-    **2. Вариант: Раздельное развертывание**  
+   **2. Вариант: Раздельное развертывание**  
      **На SMTP-сервере:**  
 ``` 
 chmod +x setup-smtp-full.sh
 sudo ./setup-smtp-full.sh -d evil.com -u smtp_user
 ```  
-     **На Gophish-сервере:**  
+   **На Gophish-сервере:**  
 ``` 
 chmod +x install-gophish.sh
 sudo ./install-gophish.sh -d evil.com -a 3333 -p 80 -i 0.0.0.0
@@ -72,32 +69,30 @@ Password: [из файла /root/smtp_config_evil.com.txt]
 
    **🌌 出力例 (Sample Output)**  
 
-    **SMTP-сервер (`setup-smtp-full.sh`)**  
+   **SMTP-сервер (`setup-smtp-full.sh`)**  
 ```
 ╔══════════════════════════════════════════╗
-║           SMTP КОНФИГУРАЦИЯ             ║
+║           SMTP КОНФИГУРАЦИЯ              ║
 ╠══════════════════════════════════════════╣
-║  Домен:          evil.com
-║  Хост:           mail.evil.com
-║  Пользователь:   smtp_user
-║  Пароль:         Jx8 kLm2!pQ9
-║  SMTP Порт:      587 (STARTTLS)
+║  Домен:          evil.com                ║
+║  Хост:           mail.evil.com           ║
+║  Пользователь:   smtp_user               ║
+║  Пароль:         Jx8 kLm2!pQ9            ║
+║  SMTP Порт:      587 (STARTTLS)          ║
 ╚══════════════════════════════════════════╝
 ```  
 
-    **Gophish (`install-gophish.sh`)**  
+   **Gophish (`install-gophish.sh`)**  
 ```
 ╔══════════════════════════════════════════╗
 ║            Gophish Конфигурация          ║
 ╠══════════════════════════════════════════╣
-║  Админ панель: https://0.0.0.0:3333
-║  Логин: admin
-║  Пароль: dR5@kP9!qW2
-║  Фишинг порт: 80
+║  Админ панель: https://0.0.0.0:3333      ║
+║  Логин: admin                            ║
+║  Пароль: dR5@kP9!qW2                     ║
+║  Фишинг порт: 80                         ║
 ╚══════════════════════════════════════════╝
 ```  
-
----
 
    **💀 システム要件 (System Requirements)**  
     **地獄の依存関係 (Dependencies from Hell)**  
