@@ -2,8 +2,8 @@
 
 set -e
 
-DOMAIN="fish.visumcollaborator.fun"   # ⚠️ Укажи свой домен
-EMAIL="Theskill19@yandex.ru"             # ⚠️ Укажи свой email (для Let's Encrypt)
+DOMAIN="fish.AKUMA.fun"   # ⚠️ Укажи свой домен
+EMAIL="AKUMA@yandex.ru"             # ⚠️ Укажи свой email (для Let's Encrypt)
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -91,7 +91,7 @@ nohup ./gophish > gophish.log 2>&1 &
 
 sleep 5
 
-echo -e "${YELLOW}[?] Gophish работает на: https://$DOMAIN:3333 (админка) и http://$DOMAIN (фишинг)${NC}"
+echo -e "${YELLOW}[?] Gophish работает на: https://$DOMAIN:3333 (админка) и https://$DOMAIN (фишинг)${NC}"
 
 PASS=$(grep "Please login with the username" gophish.log | tail -n1)
 if [ -n "$PASS" ]; then
