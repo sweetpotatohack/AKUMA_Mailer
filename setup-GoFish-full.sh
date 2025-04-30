@@ -4,9 +4,10 @@ set -e
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
-echo -e "${RED}[-] Проверка порта 80...${NC}"
+echo -e "${RED}A single phishing link can topple empires.${NC}"
 PID=$(lsof -ti tcp:80 || true)
 
 if [ -z "$PID" ]; then
@@ -39,7 +40,7 @@ cat > config.json <<EOF
                 "trusted_origins": []
         },
         "phish_server": {
-                "listen_url": "0.0.0.0:80",
+                "listen_url": "0.0.0.0:443",
                 "use_tls": false,
                 "cert_path": "example.crt",
                 "key_path": "example.key"
@@ -55,11 +56,19 @@ cat > config.json <<EOF
 }
 EOF
 
-echo -e "${GREEN}[+] Запускаю Gophish...${NC}"
-./gophish | while IFS= read -r line; do
-    if [[ "$line" == *"error"* || "$line" == *"warning"* ]]; then
-        echo -e "${RED}$line${NC}"
-    else
-        echo -e "${GREEN}$line${NC}"
-    fi
-done
+echo -e "${GREEN}[+] Запускаю Gophish в фоне...${NC}"
+nohup ./gophish > gophish.log 2>&1 &
+
+# Ждём, чтобы процесс успел сгенерировать пароль
+sleep 3
+
+echo -e "${YELLOW}[?] По умолчанию Gophish работает на https://<IP>:3333 (админка) и http://<IP>:80 (фишинг)${NC}"
+echo -e "${YELLOW}[!] При первом входе в браузере примите исключение для self-signed сертификата.${NC}"
+
+# Выводим пароль из лога
+PASS=$(grep "Please login with the username" gophish.log | tail -n1)
+if [ -n "$PASS" ]; then
+    echo -e "${GREEN}[+] $PASS${NC}"
+else
+    echo -e "${RED}[!] Не удалось найти логин и пароль. Проверьте файл gophish.log${NC}"
+fi
