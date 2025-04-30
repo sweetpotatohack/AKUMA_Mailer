@@ -169,5 +169,6 @@ telnet mail.AKUMA.fun 25
 **"The demon feeds on clicks – make them count."**
 
 **GitHub:** [sweetpotatohack/Fishing_AKUMA_evil.com](https://github.com/sweetpotatohack/Fishing_AKUMA_evil.com)  
-**Лицензия:** BSD 3-Clause  
+**Лицензия:**
+LICENSE - https://github.com/sweetpotatohack/Fishing_AKUMA_evil.com/blob/main/LICENSE
 ```
