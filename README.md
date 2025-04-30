@@ -119,3 +119,5 @@ swaks --to test@AKUMA.fun --from test@AKUMA.fun \
 **"Exploit like water, crash like a wave."**  
 **"A single phishing link can topple empires."**  
 **"Patches are temporary. Social engineering is eternal."**
+
+LICENSE - https://github.com/sweetpotatohack/Fishing_AKUMA_evil.com/blob/main/LICENSE
