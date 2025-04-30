@@ -439,4 +439,5 @@ ansible-playbook -i inventories/production/hosts.yml playbooks/deploy_all.yml --
 "Automation is the demon's whisper in the infrastructure's ear."  
 
 Github: [https://github.com/sweetpotatohack/Fishing_AKUMA_evil.com](https://github.com/sweetpotatohack/Fishing_AKUMA_evil.com)  
-License: BSD 3-Clause "New" or "Revised" License
+License: 
+LICENSE - https://github.com/sweetpotatohack/Fishing_AKUMA_evil.com/blob/main/LICENSE
