@@ -42,7 +42,7 @@ AKUMA Fishing Framework — это мощный инструмент для ра
 - Установленный `certbot`, `wget`, `unzip`, `lsof`
 
 ### ▶️ Команда запуска:
-```bash
+```
 sudo bash setup-GoFish-full.sh
 ```
 
@@ -66,8 +66,8 @@ sudo bash setup-GoFish-full.sh
 - DNS A-запись: `mail.AKUMA.fun` → ваш сервер
 
 ### ▶️ Команда запуска:
-```bash
-sudo bash setup-smtp-full.sh -d AKUMA.fun -u your_smtp_user
+```
+sudo setup-smtp-full.sh -d AKUMA.fun -u your_smtp_user
 ```
 
 Если не указать аргументы:
@@ -75,7 +75,7 @@ sudo bash setup-smtp-full.sh -d AKUMA.fun -u your_smtp_user
 - пользователь по умолчанию: `smtp_user`
 
 ### 📤 Пример отправки письма:
-```bash
+```
 swaks --to test@AKUMA.fun --from test@AKUMA.fun \
   --server mail.AKUMA.fun \
   --auth LOGIN \
