@@ -81,14 +81,13 @@ echo -e "\n"
 echo -e "\n💀 Все системы онлайн. Если что — это не мы."
 echo -e "🧠 Добро пожаловать в матрицу, \e[1;32m$nickname\e[0m... У нас тут sudo и печеньки 🍪."
 tput cnorm  # вернуть курсор
-echo -e "\n"
 
 echo "[*] Начинаем развертывание SMTP-сервера для домена: $DOMAIN"
 
 echo "[1/13] Установка зависимостей..."
 export DEBIAN_FRONTEND=noninteractive
 apt-get update > /dev/null
-apt-get install -y postfix opendkim opendkim-tools mailutils certbot dovecot-core dovecot-imapd curl ufw snapd > /dev/null
+apt-get install -y postfix opendkim opendkim-tools mailutils certbot dovecot-core dovecot-imapd dovecot-sieve dovecot-managesieved curl ufw snapd > /dev/null
 
 echo "[2/13] Настройка hostname..."
 hostnamectl set-hostname "$HOSTNAME"
@@ -98,7 +97,7 @@ echo "[3/13] Конфигурация Postfix..."
 postconf -e "myhostname = $HOSTNAME"
 postconf -e "myorigin = /etc/mailname"
 postconf -e "inet_interfaces = all"
-postconf -e "inet_protocols = all"
+postconf -e "inet_protocols = ipv4"
 postconf -e "mydestination = \$myhostname, localhost.\$mydomain, localhost"
 postconf -e "home_mailbox = Maildir/"
 postconf -e "smtpd_banner = \$myhostname ESMTP"
@@ -110,9 +109,34 @@ postconf -e "smtpd_tls_auth_only = yes"
 postconf -e "smtpd_sasl_type = dovecot"
 postconf -e "smtpd_sasl_path = private/auth"
 postconf -e "smtpd_sasl_auth_enable = yes"
+postconf -e "smtpd_tls_security_level = encrypt"
+postconf -e "smtpd_tls_mandatory_protocols = !SSLv2,!SSLv3,!TLSv1,!TLSv1.1"
+postconf -e "smtpd_tls_protocols = !SSLv2,!SSLv3,!TLSv1,!TLSv1.1"
+
+# Настройка портов 465 и 587 в master.cf
+cat >> /etc/postfix/master.cf <<EOF
+submission inet n       -       y       -       -       smtpd
+  -o syslog_name=postfix/submission
+  -o smtpd_tls_security_level=encrypt
+  -o smtpd_sasl_auth_enable=yes
+  -o smtpd_tls_auth_only=yes
+  -o smtpd_client_restrictions=permit_sasl_authenticated,reject
+  -o smtpd_recipient_restrictions=permit_mynetworks,permit_sasl_authenticated,reject
+  -o milter_macro_daemon_name=ORIGINATING
+
+smtps     inet  n       -       y       -       -       smtpd
+  -o syslog_name=postfix/smtps
+  -o smtpd_tls_wrappermode=yes
+  -o smtpd_sasl_auth_enable=yes
+  -o smtpd_client_restrictions=permit_sasl_authenticated,reject
+  -o smtpd_recipient_restrictions=permit_mynetworks,permit_sasl_authenticated,reject
+  -o milter_macro_daemon_name=ORIGINATING
+EOF
 
 echo "[4/13] Настройка DKIM..."
 mkdir -p "/etc/opendkim/keys/$DOMAIN"
+opendkim-genkey -s "$DKIM_SELECTOR" -d "$DOMAIN" -D "/etc/opendkim/keys/$DOMAIN"
+chown opendkim:opendkim "/etc/opendkim/keys/$DOMAIN/$DKIM_SELECTOR.private"
 
 cat > /etc/opendkim.conf <<EOF
 AutoRestart             Yes
@@ -146,33 +170,30 @@ $DOMAIN
 *.${DOMAIN}
 EOF
 
-cd "/etc/opendkim/keys/$DOMAIN"
-opendkim-genkey -s "$DKIM_SELECTOR" -d "$DOMAIN"
-chown opendkim:opendkim "$DKIM_SELECTOR.private"
-
 DKIM_RECORD=$(cat "/etc/opendkim/keys/$DOMAIN/$DKIM_SELECTOR.txt")
 
-echo "[5/13] Получение Let's Encrypt сертификата..."
-if certbot certonly --standalone -d "$HOSTNAME" --agree-tos --email "admin@$DOMAIN" --non-interactive > /dev/null 2>&1; then
-    echo "[+] SSL успешно установлен"
-    postconf -e "smtpd_tls_cert_file = /etc/letsencrypt/live/$HOSTNAME/fullchain.pem"
-    postconf -e "smtpd_tls_key_file = /etc/letsencrypt/live/$HOSTNAME/privkey.pem"
-    postconf -e "smtpd_use_tls = yes"
-else
-    echo "[-] Не удалось получить SSL. Продолжаем без TLS"
-fi
+echo "[5/13] Настройка SSL/TLS..."
+mkdir -p /etc/ssl/private
+openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+  -keyout "/etc/ssl/private/$HOSTNAME.key" \
+  -out "/etc/ssl/certs/$HOSTNAME.crt" \
+  -subj "/CN=$HOSTNAME" > /dev/null 2>&1
+
+postconf -e "smtpd_tls_cert_file = /etc/ssl/certs/$HOSTNAME.crt"
+postconf -e "smtpd_tls_key_file = /etc/ssl/private/$HOSTNAME.key"
+postconf -e "smtpd_use_tls = yes"
 
 echo "[6/13] Создание пользователя $USERNAME..."
-if id "$USERNAME" &>/dev/null; then
-    echo "[!] Пользователь $USERNAME уже существует"
-else
-    useradd -m -s /bin/bash "$USERNAME"
-fi
+useradd -m -s /bin/bash "$USERNAME" 2>/dev/null || true
 echo "$USERNAME:$PASSWORD" | chpasswd
 mkdir -p "/home/$USERNAME/Maildir"
 chown -R "$USERNAME:$USERNAME" "/home/$USERNAME/Maildir"
 
 echo "[7/13] Настройка Dovecot..."
+mkdir -p /var/spool/postfix/private
+chown postfix:postfix /var/spool/postfix/private
+chmod 750 /var/spool/postfix/private
+
 cat > /etc/dovecot/conf.d/10-master.conf <<EOF
 service auth {
   unix_listener /var/spool/postfix/private/auth {
@@ -192,29 +213,20 @@ usermod -aG opendkim postfix
 systemctl enable opendkim postfix dovecot > /dev/null
 systemctl restart opendkim postfix dovecot
 
-echo "[9/13] Настройка автопродления сертификатов..."
-snap install core; snap refresh core
-snap install certbot --classic
-ln -sf /snap/bin/certbot /usr/bin/certbot
-echo "0 3 * * 1 root certbot renew --post-hook 'systemctl reload postfix dovecot'" > /etc/cron.d/certbot-renew
+echo "[9/13] Настройка firewall (ufw)..."
+ufw allow 25/tcp
+ufw allow 587/tcp
+ufw allow 465/tcp
+ufw allow 993/tcp
+ufw --force enable > /dev/null 2>&1
 
-echo "[10/13] Настройка firewall (ufw)..."
-ufw allow 25
-ufw allow 587
-ufw allow 993
-ufw --force enable
+echo "[10/13] Получение внешнего IP..."
+EXTERNAL_IP=$(curl -4 -s https://ifconfig.me)
+PTR_RECORD=$(dig +short -x "$EXTERNAL_IP" 2>/dev/null || echo "Не найдена")
 
-echo "[11/13] Проверка конфигурации..."
-postfix check
-dovecot -n
-
-echo "[12/13] Получение внешнего IP..."
-EXTERNAL_IP=$(curl -s https://ifconfig.me)
-
-echo "[13/13] Завершено!"
+echo "[11/13] Создание конфигурационного файла..."
 CONFIG_FILE="/root/smtp_config_$DOMAIN.txt"
 cat > "$CONFIG_FILE" <<EOF
-
 ╔══════════════════════════════════════════╗
 ║           SMTP КОНФИГУРАЦИЯ              ║
 ╠══════════════════════════════════════════╣
@@ -222,42 +234,30 @@ cat > "$CONFIG_FILE" <<EOF
 ║  Хост:           $HOSTNAME
 ║  Пользователь:   $USERNAME
 ║  Пароль:         $PASSWORD
-║  SMTP Порт:      587 (STARTTLS)
-║  DKIM Селектор:  $DKIM_SELECTOR
+║  Внешний IP:     $EXTERNAL_IP
+║  PTR запись:     $PTR_RECORD
 ╚══════════════════════════════════════════╝
 
-DNS записи для настройки:
+DNS записи:
 1. A-запись: mail.$DOMAIN → $EXTERNAL_IP
 2. MX-запись: @ → mail.$DOMAIN (приоритет 10)
-3. SPF:
-   @ TXT "v=spf1 ip4:$EXTERNAL_IP -all"
-4. DKIM:
-   $DKIM_SELECTOR._domainkey.$DOMAIN TXT "$(echo "$DKIM_RECORD" | grep -oP '".*"' | sed 's/"//g')"
-5. DMARC:
-   _dmarc TXT "v=DMARC1; p=quarantine; rua=mailto:dmarc@$DOMAIN"
+3. SPF: @ TXT "v=spf1 ip4:$EXTERNAL_IP -all"
+4. DKIM: $(cat "/etc/opendkim/keys/$DOMAIN/$DKIM_SELECTOR.txt")
+5. DMARC: _dmarc TXT "v=DMARC1; p=none; rua=mailto:dmarc@$DOMAIN"
 
-⚠️ Не забудьте настроить PTR-запись для IP!
+Тест отправки:
+# Через порт 587 (STARTTLS):
+swaks --to test@example.com --from $USERNAME@$DOMAIN \\
+      --server $HOSTNAME --port 587 \\
+      --auth LOGIN --auth-user $USERNAME \\
+      --auth-password '$PASSWORD' --tls
 
+# Через порт 465 (SSL/TLS):
+swaks --to test@example.com --from $USERNAME@$DOMAIN \\
+      --server $HOSTNAME --port 465 \\
+      --auth LOGIN --auth-user $USERNAME \\
+      --auth-password '$PASSWORD' --tlsc
 EOF
 
-echo -e "\n[+] DKIM ключ:\n"
-echo "$DKIM_RECORD"
-
-echo -e "\n\e[1;35m┌────────────────────────────────────────────────────────────┐\e[0m"
-echo -e "\e[1;35m│\e[0m \e[1;36m    SMTP СЕРВЕР ГОТОВ :: ИНФОРМАЦИЯ ДЛЯ ПОДКЛЮЧЕНИЯ     \e[0m\e[1;35m│\e[0m"
-echo -e "\e[1;35m└────────────────────────────────────────────────────────────┘\e[0m"
-sleep 0.5
-
-IFS=$'\n'
-for line in $(cat "$CONFIG_FILE"); do
-    if command -v lolcat &>/dev/null; then
-        echo -e "$line" | lolcat
-    else
-        echo -e "$line"
-    fi
-    sleep 0.08
-done
-
-echo -e "\n\e[1;32m[✔] Готово. Сервер в боевой готовности.\e[0m"
-echo -e "\e[1;33m[ℹ] Файл конфигурации сохранён: \e[1;36m$CONFIG_FILE\e[0m"
-echo -e "\e[1;35m[⚠] Не забудь обновить DNS-записи вручную!\e[0m\n"
+echo -e "\n\e[1;32m[✔] Установка завершена успешно!\e[0m"
+echo -e "\e[1;33mКонфигурация сохранена в: $CONFIG_FILE\e[0m"
