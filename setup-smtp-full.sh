@@ -1,38 +1,4 @@
 #!/bin/bash
-
-set +H
-set -e
-
-# --- Конфигурация по умолчанию ---
-DEFAULT_DOMAIN="example.com"
-DEFAULT_USER="smtp_user"
-DKIM_SELECTOR="mail"
-SMTP_PORT=2525      # Вместо стандартного 587
-SMTPS_PORT=4655     # Вместо стандартного 465
-
-# --- Проверка прав ---
-if [ "$(id -u)" -ne 0 ]; then
-    echo "Этот скрипт должен запускаться с правами root!" >&2
-    exit 1
-fi
-
-# --- Аргументы командной строки ---
-NO_LOG=0
-while getopts "d:u:n" opt; do
-    case $opt in
-        d) DOMAIN="$OPTARG" ;;
-        u) USERNAME="$OPTARG" ;;
-        n) NO_LOG=1 ;;
-        *) echo "Использование: $0 [-d domain] [-u username] [-n]" >&2
-           exit 1 ;;
-    esac
-done
-
-DOMAIN=${DOMAIN:-$DEFAULT_DOMAIN}
-USERNAME=${USERNAME:-$DEFAULT_USER}
-HOSTNAME="mail.$DOMAIN"
-PASSWORD=$(< /dev/urandom tr -dc 'A-Za-z0-9@#%&*_' | head -c 16)
-
 clear
 tput civis  # скрыть курсор
 
@@ -83,19 +49,48 @@ for ((i=0; i<${#nickname}; i++)); do
 done
 tput cnorm  # вернуть курсор
 
-echo "[*] Начинаем развертывание SMTP-сервера для домена: $DOMAIN"
-echo "[*] Используемые порты: SMTP=$SMTP_PORT (вместо 587), SMTPS=$SMTPS_PORT (вместо 465)"
+set +H
+set -e
 
-echo "[1/13] Установка зависимостей..."
+# --- Конфигурация по умолчанию ---
+DEFAULT_DOMAIN="example.com"
+DEFAULT_USER="smtp_user"
+DKIM_SELECTOR="mail"
+SMTP_PORT=587
+SMTPS_PORT=465
+
+# --- Проверка прав ---
+if [ "$(id -u)" -ne 0 ]; then
+    echo "Этот скрипт должен запускаться с правами root!" >&2
+    exit 1
+fi
+
+# --- Аргументы командной строки ---
+NO_LOG=0
+while getopts "d:u:n" opt; do
+    case $opt in
+        d) DOMAIN="$OPTARG" ;;
+        u) USERNAME="$OPTARG" ;;
+        n) NO_LOG=1 ;;
+        *) echo "Использование: $0 [-d domain] [-u username] [-n]" >&2
+           exit 1 ;;
+    esac
+done
+
+DOMAIN=${DOMAIN:-$DEFAULT_DOMAIN}
+USERNAME=${USERNAME:-$DEFAULT_USER}
+HOSTNAME="mail.$DOMAIN"
+PASSWORD=$(< /dev/urandom tr -dc 'A-Za-z0-9@#%&*_' | head -c 16)
+
+# Установка зависимостей
 export DEBIAN_FRONTEND=noninteractive
 apt-get update > /dev/null
 apt-get install -y postfix opendkim opendkim-tools mailutils certbot dovecot-core dovecot-imapd dovecot-sieve dovecot-managesieved curl ufw snapd > /dev/null
 
-echo "[2/13] Настройка hostname..."
 hostnamectl set-hostname "$HOSTNAME"
 echo "$DOMAIN" > /etc/mailname
 
-echo "[3/13] Конфигурация Postfix..."
+# Настройка Postfix
 postconf -e "myhostname = $HOSTNAME"
 postconf -e "myorigin = /etc/mailname"
 postconf -e "inet_interfaces = all"
@@ -114,8 +109,12 @@ postconf -e "smtpd_sasl_auth_enable = yes"
 postconf -e "smtpd_tls_security_level = encrypt"
 postconf -e "smtpd_tls_mandatory_protocols = !SSLv2,!SSLv3,!TLSv1,!TLSv1.1"
 postconf -e "smtpd_tls_protocols = !SSLv2,!SSLv3,!TLSv1,!TLSv1.1"
+postconf -e "smtpd_use_tls = yes"
 
-# Настройка нестандартных портов в master.cf
+# Правка master.cf для стандартных портов
+sed -i "/^submission /,/^$/d" /etc/postfix/master.cf
+sed -i "/^smtps /,/^$/d" /etc/postfix/master.cf
+
 cat >> /etc/postfix/master.cf <<EOF
 submission inet n       -       y       -       -       smtpd
   -o syslog_name=postfix/submission
@@ -123,22 +122,17 @@ submission inet n       -       y       -       -       smtpd
   -o smtpd_sasl_auth_enable=yes
   -o smtpd_tls_auth_only=yes
   -o smtpd_client_restrictions=permit_sasl_authenticated,reject
-  -o smtpd_recipient_restrictions=permit_mynetworks,permit_sasl_authenticated,reject
   -o milter_macro_daemon_name=ORIGINATING
-  -o smtpd_tls_wrappermode=no
-  -o smtpd_port=$SMTP_PORT
 
 smtps     inet  n       -       y       -       -       smtpd
   -o syslog_name=postfix/smtps
   -o smtpd_tls_wrappermode=yes
   -o smtpd_sasl_auth_enable=yes
   -o smtpd_client_restrictions=permit_sasl_authenticated,reject
-  -o smtpd_recipient_restrictions=permit_mynetworks,permit_sasl_authenticated,reject
   -o milter_macro_daemon_name=ORIGINATING
-  -o smtpd_port=$SMTPS_PORT
 EOF
 
-echo "[4/13] Настройка DKIM..."
+# DKIM
 mkdir -p "/etc/opendkim/keys/$DOMAIN"
 opendkim-genkey -s "$DKIM_SELECTOR" -d "$DOMAIN" -D "/etc/opendkim/keys/$DOMAIN"
 chown opendkim:opendkim "/etc/opendkim/keys/$DOMAIN/$DKIM_SELECTOR.private"
@@ -175,9 +169,7 @@ $DOMAIN
 *.${DOMAIN}
 EOF
 
-DKIM_RECORD=$(cat "/etc/opendkim/keys/$DOMAIN/$DKIM_SELECTOR.txt")
-
-echo "[5/13] Настройка SSL/TLS..."
+# SSL
 mkdir -p /etc/ssl/private
 openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
   -keyout "/etc/ssl/private/$HOSTNAME.key" \
@@ -186,19 +178,14 @@ openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
 
 postconf -e "smtpd_tls_cert_file = /etc/ssl/certs/$HOSTNAME.crt"
 postconf -e "smtpd_tls_key_file = /etc/ssl/private/$HOSTNAME.key"
-postconf -e "smtpd_use_tls = yes"
 
-echo "[6/13] Создание пользователя $USERNAME..."
+# Пользователь
 useradd -m -s /bin/bash "$USERNAME" 2>/dev/null || true
 echo "$USERNAME:$PASSWORD" | chpasswd
 mkdir -p "/home/$USERNAME/Maildir"
 chown -R "$USERNAME:$USERNAME" "/home/$USERNAME/Maildir"
 
-echo "[7/13] Настройка Dovecot..."
-mkdir -p /var/spool/postfix/private
-chown postfix:postfix /var/spool/postfix/private
-chmod 750 /var/spool/postfix/private
-
+# Dovecot
 cat > /etc/dovecot/conf.d/10-master.conf <<EOF
 service auth {
   unix_listener /var/spool/postfix/private/auth {
@@ -213,59 +200,43 @@ echo "mail_location = maildir:~/Maildir" >> /etc/dovecot/conf.d/10-mail.conf
 echo "disable_plaintext_auth = no" >> /etc/dovecot/conf.d/10-auth.conf
 echo "auth_mechanisms = plain login" >> /etc/dovecot/conf.d/10-auth.conf
 
-echo "[8/13] Перезапуск сервисов..."
 usermod -aG opendkim postfix
 systemctl enable opendkim postfix dovecot > /dev/null
 systemctl restart opendkim postfix dovecot
 
-echo "[9/13] Настройка firewall (ufw)..."
+# Firewall
 ufw allow 25/tcp
-ufw allow $SMTP_PORT/tcp
-ufw allow $SMTPS_PORT/tcp
+ufw allow 587/tcp
+ufw allow 465/tcp
 ufw allow 993/tcp
 ufw --force enable > /dev/null 2>&1
 
-echo "[10/13] Получение внешнего IP..."
 EXTERNAL_IP=$(curl -4 -s https://ifconfig.me)
 PTR_RECORD=$(dig +short -x "$EXTERNAL_IP" 2>/dev/null || echo "Не найдена")
 
-echo "[11/13] Создание конфигурационного файла..."
 CONFIG_FILE="/root/smtp_config_$DOMAIN.txt"
 cat > "$CONFIG_FILE" <<EOF
-╔══════════════════════════════════════════╗
-║           SMTP КОНФИГУРАЦИЯ              ║
-╠══════════════════════════════════════════╣
-║  Домен:          $DOMAIN
-║  Хост:           $HOSTNAME
-║  Пользователь:   $USERNAME
-║  Пароль:         $PASSWORD
-║  Внешний IP:     $EXTERNAL_IP
-║  PTR запись:     $PTR_RECORD
-║  SMTP порт:      $SMTP_PORT (вместо 587)
-║  SMTPS порт:     $SMTPS_PORT (вместо 465)
-╚══════════════════════════════════════════╝
+SMTP Конфигурация:
+Домен:          $DOMAIN
+Хост:           $HOSTNAME
+Пользователь:   $USERNAME
+Пароль:         $PASSWORD
+Внешний IP:     $EXTERNAL_IP
+PTR:            $PTR_RECORD
+SMTP порт:      587
+SMTPS порт:     465
 
-DNS записи:
-1. A-запись: mail.$DOMAIN → $EXTERNAL_IP
-2. MX-запись: @ → mail.$DOMAIN (приоритет 10)
-3. SPF: @ TXT "v=spf1 ip4:$EXTERNAL_IP -all"
-4. DKIM: $(cat "/etc/opendkim/keys/$DOMAIN/$DKIM_SELECTOR.txt")
-5. DMARC: _dmarc TXT "v=DMARC1; p=none; rua=mailto:dmarc@$DOMAIN"
+DNS:
+A: mail.$DOMAIN -> $EXTERNAL_IP
+MX: @ -> mail.$DOMAIN (10)
+SPF: "v=spf1 ip4:$EXTERNAL_IP -all"
+DKIM: $(cat "/etc/opendkim/keys/$DOMAIN/$DKIM_SELECTOR.txt")
+DMARC: "v=DMARC1; p=none; rua=mailto:dmarc@$DOMAIN"
 
-Тест отправки:
-# Через порт $SMTP_PORT (STARTTLS):
-swaks --to test@example.com --from $USERNAME@$DOMAIN \\
-      --server $HOSTNAME --port $SMTP_PORT \\
-      --auth LOGIN --auth-user $USERNAME \\
-      --auth-password '$PASSWORD' --tls
-
-# Через порт $SMTPS_PORT (SSL/TLS):
-swaks --to test@example.com --from $USERNAME@$DOMAIN \\
-      --server $HOSTNAME --port $SMTPS_PORT \\
-      --auth LOGIN --auth-user $USERNAME \\
-      --auth-password '$PASSWORD' --tlsc
+Примеры:
+swaks --to test@example.com --from $USERNAME@$DOMAIN --server $HOSTNAME \
+  --port 587 --auth LOGIN --auth-user $USERNAME --auth-password '$PASSWORD' --tls
 EOF
 
-echo -e "\n\e[1;32m[✔] Установка завершена успешно!\e[0m"
-echo -e "\e[1;33mКонфигурация сохранена в: $CONFIG_FILE\e[0m"
-echo -e "\e[1;35mИспользуемые порты: SMTP=$SMTP_PORT, SMTPS=$SMTPS_PORT\e[0m"
+echo -e "\n[✔] SMTP сервер установлен. Конфигурация: $CONFIG_FILE"
+tput cnorm
