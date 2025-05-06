@@ -7,6 +7,8 @@ set -e
 DEFAULT_DOMAIN="example.com"
 DEFAULT_USER="smtp_user"
 DKIM_SELECTOR="mail"
+SMTP_PORT=2525      # Вместо стандартного 587
+SMTPS_PORT=4655     # Вместо стандартного 465
 
 # --- Проверка прав ---
 if [ "$(id -u)" -ne 0 ]; then
@@ -53,15 +55,18 @@ for line in "${glitch_lines[@]}"; do
   if command -v lolcat &>/dev/null; then
     echo -ne "\e[1;32m$line\e[0m\n" | lolcat
   else
-    echo -ne "\e[1;32m$line\e[0m\n"
+    echo -ne "\e[1;38;5;82m$line\e[0m\n"
   fi
-  sleep 0.25
+  sleep 0.2
 done
 
+# ASCII-заставка с ником AKUMA
+echo -e "\n\e[1;38;5;201m █████╗ ██╗  ██╗██╗   ██╗███╗   ███╗ █████╗ \n██╔══██╗██║ ██╔╝██║   ██║████╗ ████║██╔══██╗\n███████║█████╔╝ ██║   ██║██╔████╔██║███████║\n██╔══██║██╔═██╗ ██║   ██║██║╚██╔╝██║██╔══██║\n██║  ██║██║  ██╗╚██████╔╝██║ ╚═╝ ██║██║  ██║\n╚═╝  ╚═╝╚═╝  ╚═╝ ╚═════╝ ╚═╝     ╚═╝╚═╝  ╚═╝\n\e[0m"
+
 echo ""
-echo -ne "\e[1;35m┌──────────────────────────────────────────────────────┐\e[0m\n"
-echo -ne "\e[1;35m│ \e[0m\e[1;36m   HACK MODULE LOADED :: WELCOME, OPERATIVE.   \e[0m\e[1;35m      │\e[0m\n"
-echo -ne "\e[1;35m└──────────────────────────────────────────────────────┘\e[0m\n"
+echo -ne "\e[1;38;5;93m┌──────────────────────────────────────────────────────┐\e[0m\n"
+echo -ne "\e[1;38;5;93m│ \e[0m\e[1;38;5;87m   HACK MODULE LOADED :: WELCOME, OPERATIVE   \e[0m\e[1;38;5;93m│\e[0m\n"
+echo -ne "\e[1;38;5;93m└──────────────────────────────────────────────────────┘\e[0m\n"
 sleep 1
 
 for i in {1..30}; do
@@ -76,13 +81,10 @@ for ((i=0; i<${#nickname}; i++)); do
     echo -ne "\e[1;31m${nickname:$i:1}\e[0m"
     sleep 0.2
 done
-
-echo -e "\n"
-echo -e "\n💀 Все системы онлайн. Если что — это не мы."
-echo -e "🧠 Добро пожаловать в матрицу, \e[1;32m$nickname\e[0m... У нас тут sudo и печеньки 🍪."
 tput cnorm  # вернуть курсор
 
 echo "[*] Начинаем развертывание SMTP-сервера для домена: $DOMAIN"
+echo "[*] Используемые порты: SMTP=$SMTP_PORT (вместо 587), SMTPS=$SMTPS_PORT (вместо 465)"
 
 echo "[1/13] Установка зависимостей..."
 export DEBIAN_FRONTEND=noninteractive
@@ -113,7 +115,7 @@ postconf -e "smtpd_tls_security_level = encrypt"
 postconf -e "smtpd_tls_mandatory_protocols = !SSLv2,!SSLv3,!TLSv1,!TLSv1.1"
 postconf -e "smtpd_tls_protocols = !SSLv2,!SSLv3,!TLSv1,!TLSv1.1"
 
-# Настройка портов 465 и 587 в master.cf
+# Настройка нестандартных портов в master.cf
 cat >> /etc/postfix/master.cf <<EOF
 submission inet n       -       y       -       -       smtpd
   -o syslog_name=postfix/submission
@@ -123,6 +125,8 @@ submission inet n       -       y       -       -       smtpd
   -o smtpd_client_restrictions=permit_sasl_authenticated,reject
   -o smtpd_recipient_restrictions=permit_mynetworks,permit_sasl_authenticated,reject
   -o milter_macro_daemon_name=ORIGINATING
+  -o smtpd_tls_wrappermode=no
+  -o smtpd_port=$SMTP_PORT
 
 smtps     inet  n       -       y       -       -       smtpd
   -o syslog_name=postfix/smtps
@@ -131,6 +135,7 @@ smtps     inet  n       -       y       -       -       smtpd
   -o smtpd_client_restrictions=permit_sasl_authenticated,reject
   -o smtpd_recipient_restrictions=permit_mynetworks,permit_sasl_authenticated,reject
   -o milter_macro_daemon_name=ORIGINATING
+  -o smtpd_port=$SMTPS_PORT
 EOF
 
 echo "[4/13] Настройка DKIM..."
@@ -215,8 +220,8 @@ systemctl restart opendkim postfix dovecot
 
 echo "[9/13] Настройка firewall (ufw)..."
 ufw allow 25/tcp
-ufw allow 587/tcp
-ufw allow 465/tcp
+ufw allow $SMTP_PORT/tcp
+ufw allow $SMTPS_PORT/tcp
 ufw allow 993/tcp
 ufw --force enable > /dev/null 2>&1
 
@@ -236,6 +241,8 @@ cat > "$CONFIG_FILE" <<EOF
 ║  Пароль:         $PASSWORD
 ║  Внешний IP:     $EXTERNAL_IP
 ║  PTR запись:     $PTR_RECORD
+║  SMTP порт:      $SMTP_PORT (вместо 587)
+║  SMTPS порт:     $SMTPS_PORT (вместо 465)
 ╚══════════════════════════════════════════╝
 
 DNS записи:
@@ -246,18 +253,19 @@ DNS записи:
 5. DMARC: _dmarc TXT "v=DMARC1; p=none; rua=mailto:dmarc@$DOMAIN"
 
 Тест отправки:
-# Через порт 587 (STARTTLS):
+# Через порт $SMTP_PORT (STARTTLS):
 swaks --to test@example.com --from $USERNAME@$DOMAIN \\
-      --server $HOSTNAME --port 587 \\
+      --server $HOSTNAME --port $SMTP_PORT \\
       --auth LOGIN --auth-user $USERNAME \\
       --auth-password '$PASSWORD' --tls
 
-# Через порт 465 (SSL/TLS):
+# Через порт $SMTPS_PORT (SSL/TLS):
 swaks --to test@example.com --from $USERNAME@$DOMAIN \\
-      --server $HOSTNAME --port 465 \\
+      --server $HOSTNAME --port $SMTPS_PORT \\
       --auth LOGIN --auth-user $USERNAME \\
       --auth-password '$PASSWORD' --tlsc
 EOF
 
 echo -e "\n\e[1;32m[✔] Установка завершена успешно!\e[0m"
 echo -e "\e[1;33mКонфигурация сохранена в: $CONFIG_FILE\e[0m"
+echo -e "\e[1;35mИспользуемые порты: SMTP=$SMTP_PORT, SMTPS=$SMTPS_PORT\e[0m"
