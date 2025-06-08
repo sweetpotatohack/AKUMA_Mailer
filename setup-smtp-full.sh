@@ -2,15 +2,14 @@
 set -e
 tput civis 2>/dev/null
 
-# --- КИБЕРПАНК ГЛЮК ---  
+# --- КИБЕРПАНК-СТАРТ ---
 glitch_lines=(
-  "Ξ Запуск SMTP-реактора... [подключаю кофемолку]"
-  "Ξ Взлом Reality Matrix... [всё стабильно]"
-  "Ξ Генерация DKIM-ключа... [держись, SPF!]"
-  "Ξ Инъекция GoPhish в корпоративную вену... [безболезненно]"
-  "Ξ Выпуск писем через darknet... [скорость света]"
-  "Ξ ███████████████████████▓▓▓▓▓░░░░░░░░ [80%] антиспам calibration"
-  "Ξ ████████████████████████████████████ [100%] ты официально mail admin"
+  "Ξ Разогрев SSL-реактора... [жду Let’s Encrypt]"
+  "Ξ Проверка DNS, шаманю PTR..."
+  "Ξ Калибрую DKIM [выше, сильнее, валиднее]"
+  "Ξ Ставлю ловушку на спам-фильтры..."
+  "Ξ ███████████████████████▓▓▓▓▓░░░░░░░░ [80%] Грею порт 587"
+  "Ξ ████████████████████████████████████ [100%] Сервер готов, AKUMA!"
 )
 for line in "${glitch_lines[@]}"; do
   if command -v lolcat &>/dev/null; then
@@ -18,25 +17,23 @@ for line in "${glitch_lines[@]}"; do
   else
     echo -e "$line"
   fi
-  sleep 0.2
+  sleep 0.18
 done
 
-echo -e "\n\033[1;38;5;201mSMTP-Deploy v2.1 :: for AKUMA\033[0m\n"
+echo -e "\n\033[1;38;5;201mSMTP Deploy v3 :: Let’s Encrypt Edition :: for AKUMA\033[0m\n"
 sleep 0.2
 
-# --- Конфиг ---  
+# --- Конфиг ---
 DEFAULT_DOMAIN="example.com"
 DEFAULT_USER="akuma"
 DKIM_SELECTOR="mail"
 SMTP_PORT=587
 SMTPS_PORT=465
 
-# --- Проверка root ---  
 if [[ $EUID -ne 0 ]]; then
   echo "Run as root, mortal!" && exit 77
 fi
 
-# --- Аргументы ---  
 while getopts "d:u:" opt; do
   case $opt in
     d) DOMAIN="$OPTARG" ;;
@@ -52,14 +49,35 @@ PASSWORD=$(< /dev/urandom tr -dc 'A-Za-z0-9@#%&*_' | head -c 16)
 
 export DEBIAN_FRONTEND=noninteractive
 
-# --- Установка пакетов ---  
+# --- Установка пакетов ---
 apt-get update -qq
-apt-get install -y postfix dovecot-core dovecot-imapd opendkim opendkim-tools mailutils curl ufw
+apt-get install -y postfix dovecot-core dovecot-imapd opendkim opendkim-tools mailutils curl ufw certbot dig
 
 hostnamectl set-hostname "$HOSTNAME"
 echo "$DOMAIN" > /etc/mailname
 
-# --- POSTFIX ---  
+# --- Проверка A-записи (ожидание появления DNS) ---
+echo "[*] Проверяю наличие A-записи для $HOSTNAME..."
+EXT_IP=$(curl -4 -s https://ifconfig.me)
+TRIES=0
+while [[ "$(dig +short $HOSTNAME | grep -w $EXT_IP || true)" == "" ]]; do
+  ((TRIES++))
+  if [[ $TRIES -gt 25 ]]; then
+    echo "A-запись на $HOSTNAME не указывает на этот сервер ($EXT_IP). Проверь DNS или жди обновления зоны!"
+    exit 2
+  fi
+  echo "Ожидание появления A-записи $HOSTNAME -> $EXT_IP (попытка $TRIES/25)..."
+  sleep 8
+done
+echo "[+] A-запись на месте!"
+
+# --- Получаем Let's Encrypt SSL ---
+ufw allow 80/tcp
+systemctl stop postfix dovecot 2>/dev/null || true
+certbot certonly --standalone --preferred-challenges http -d $HOSTNAME --register-unsafely-without-email --agree-tos --noninteractive
+systemctl start postfix dovecot
+
+# --- POSTFIX ---
 postconf -e "myhostname = $HOSTNAME"
 postconf -e "myorigin = /etc/mailname"
 postconf -e "inet_interfaces = all"
@@ -78,8 +96,10 @@ postconf -e "smtpd_sasl_auth_enable = yes"
 postconf -e "smtpd_tls_security_level = may"
 postconf -e "smtpd_tls_protocols = !SSLv2,!SSLv3,!TLSv1,!TLSv1.1"
 postconf -e "smtpd_use_tls = yes"
+postconf -e "smtpd_tls_cert_file = /etc/letsencrypt/live/$HOSTNAME/fullchain.pem"
+postconf -e "smtpd_tls_key_file = /etc/letsencrypt/live/$HOSTNAME/privkey.pem"
 
-# --- master.cf submission/smtps ---  
+# --- master.cf submission/smtps ---
 if ! grep -q "submission inet" /etc/postfix/master.cf; then
   cat >> /etc/postfix/master.cf <<EOF
 
@@ -100,7 +120,7 @@ smtps     inet  n       -       y       -       -       smtpd
 EOF
 fi
 
-# --- DKIM ---  
+# --- DKIM ---
 mkdir -p "/etc/opendkim/keys/$DOMAIN"
 opendkim-genkey -s "$DKIM_SELECTOR" -d "$DOMAIN" -D "/etc/opendkim/keys/$DOMAIN"
 chown opendkim:opendkim "/etc/opendkim/keys/$DOMAIN/$DKIM_SELECTOR.private"
@@ -137,22 +157,13 @@ $DOMAIN
 *.${DOMAIN}
 EOF
 
-# --- SSL ---  
-openssl req -x509 -nodes -days 730 -newkey rsa:2048 \
-  -keyout "/etc/ssl/private/$HOSTNAME.key" \
-  -out "/etc/ssl/certs/$HOSTNAME.crt" \
-  -subj "/CN=$HOSTNAME" > /dev/null 2>&1
-
-postconf -e "smtpd_tls_cert_file = /etc/ssl/certs/$HOSTNAME.crt"
-postconf -e "smtpd_tls_key_file = /etc/ssl/private/$HOSTNAME.key"
-
-# --- User для GoPhish ---  
+# --- User для GoPhish ---
 useradd -m -s /bin/bash "$USERNAME" 2>/dev/null || true
 echo "$USERNAME:$PASSWORD" | chpasswd
 mkdir -p "/home/$USERNAME/Maildir"
 chown -R "$USERNAME:$USERNAME" "/home/$USERNAME/Maildir"
 
-# --- Dovecot ---  
+# --- Dovecot + SSL ---
 cat > /etc/dovecot/conf.d/10-master.conf <<EOF
 service auth {
   unix_listener /var/spool/postfix/private/auth {
@@ -167,20 +178,24 @@ echo "mail_location = maildir:~/Maildir" >> /etc/dovecot/conf.d/10-mail.conf
 echo "disable_plaintext_auth = no" >> /etc/dovecot/conf.d/10-auth.conf
 echo "auth_mechanisms = plain login" >> /etc/dovecot/conf.d/10-auth.conf
 
+cat > /etc/dovecot/conf.d/10-ssl.conf <<EOF
+ssl = required
+ssl_cert = </etc/letsencrypt/live/$HOSTNAME/fullchain.pem
+ssl_key = </etc/letsencrypt/live/$HOSTNAME/privkey.pem
+EOF
+
 usermod -aG opendkim postfix
 systemctl enable opendkim postfix dovecot
 systemctl restart opendkim postfix dovecot
 
-# --- Firewall ---  
+# --- Firewall ---
 ufw allow 25/tcp
 ufw allow 587/tcp
 ufw allow 465/tcp
 ufw allow 993/tcp
 ufw --force enable
 
-EXTERNAL_IP=$(curl -4 -s https://ifconfig.me)
-PTR_RECORD=$(dig +short -x "$EXTERNAL_IP" 2>/dev/null || echo "Не найдена")
-
+PTR_RECORD=$(dig +short -x "$EXT_IP" 2>/dev/null || echo "Не найдена")
 CONFIG_FILE="/root/smtp_config_$DOMAIN.txt"
 cat > "$CONFIG_FILE" <<EOF
 SMTP Конфигурация:
@@ -188,15 +203,15 @@ SMTP Конфигурация:
 Хост:           $HOSTNAME
 Пользователь:   $USERNAME
 Пароль:         $PASSWORD
-Внешний IP:     $EXTERNAL_IP
+Внешний IP:     $EXT_IP
 PTR:            $PTR_RECORD
 SMTP порт:      587
 SMTPS порт:     465
 
 DNS:
-A: mail.$DOMAIN -> $EXTERNAL_IP
+A: mail.$DOMAIN -> $EXT_IP
 MX: @ -> mail.$DOMAIN (10)
-SPF: "v=spf1 ip4:$EXTERNAL_IP -all"
+SPF: "v=spf1 ip4:$EXT_IP -all"
 DKIM: $(cat "/etc/opendkim/keys/$DOMAIN/$DKIM_SELECTOR.txt")
 DMARC: "v=DMARC1; p=none; rua=mailto:dmarc@$DOMAIN"
 
@@ -206,5 +221,5 @@ swaks --to test@example.com --from $USERNAME@$DOMAIN --server $HOSTNAME \
 EOF
 
 echo -e "\n[✔] SMTP сервер для рассылки готов!\n[!] Все настройки в: $CONFIG_FILE"
-echo -e "\n[!] Не забудь:\n • Прописать DNS (A/MX/SPF/DKIM/DMARC)\n • Проверить PTR на IP ($EXTERNAL_IP)\n"
+echo -e "\n[!] Не забудь:\n • Прописать DNS (A/MX/SPF/DKIM/DMARC)\n • Проверить PTR на IP ($EXT_IP)\n"
 tput cnorm 2>/dev/null
