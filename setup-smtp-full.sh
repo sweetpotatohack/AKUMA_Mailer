@@ -8,9 +8,6 @@ glitch_lines=(
   "Ξ Проверка DNS, шаманю PTR..."
   "Ξ Калибрую DKIM [выше, сильнее, валиднее]"
   "Ξ Ставлю ловушку на спам-фильтры..."
-  "Ξ ████████████▓▓▓░░░░░░░░░░░░░░░░░░░░░░░░ [10%] загрузка кофеина"
-  "Ξ ███████████████▓▓▓▓▓▓▓░░░░░░░░░░░░░░░░ [42%] теряется связь с реальностью"
-  "Ξ ███████████████████████▓▓▓▓▓░░░░░░░░ [76%] синхронизация с darknet"
   "Ξ ███████████████████████▓▓▓▓▓░░░░░░░░ [80%] Грею порт 587"
   "Ξ ████████████████████████████████████ [100%] Сервер готов, AKUMA!"
 )
@@ -54,7 +51,7 @@ export DEBIAN_FRONTEND=noninteractive
 
 # --- Установка пакетов ---
 apt-get update -qq
-apt-get install -y postfix dovecot-core dovecot-imapd opendkim opendkim-tools mailutils curl ufw certbot dig
+apt-get install -y postfix dovecot-core dovecot-imapd opendkim opendkim-tools mailutils curl ufw certbot dnsutils
 
 hostnamectl set-hostname "$HOSTNAME"
 echo "$DOMAIN" > /etc/mailname
