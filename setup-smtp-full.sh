@@ -77,27 +77,46 @@ systemctl stop postfix dovecot 2>/dev/null || true
 certbot certonly --standalone --preferred-challenges http -d $HOSTNAME --register-unsafely-without-email --agree-tos --noninteractive
 systemctl start postfix dovecot
 
-# --- POSTFIX ---
-postconf -e "myhostname = $HOSTNAME"
-postconf -e "myorigin = /etc/mailname"
-postconf -e "inet_interfaces = all"
-postconf -e "inet_protocols = ipv4"
-postconf -e "mydestination = \$myhostname, localhost.\$mydomain, localhost"
-postconf -e "home_mailbox = Maildir/"
-postconf -e "smtpd_banner = \$myhostname ESMTP"
-postconf -e "milter_default_action = accept"
-postconf -e "milter_protocol = 2"
-postconf -e "smtpd_milters = inet:localhost:12301"
-postconf -e "non_smtpd_milters = inet:localhost:12301"
-postconf -e "smtpd_tls_auth_only = yes"
-postconf -e "smtpd_sasl_type = dovecot"
-postconf -e "smtpd_sasl_path = private/auth"
-postconf -e "smtpd_sasl_auth_enable = yes"
-postconf -e "smtpd_tls_security_level = may"
-postconf -e "smtpd_tls_protocols = !SSLv2,!SSLv3,!TLSv1,!TLSv1.1"
-postconf -e "smtpd_use_tls = yes"
-postconf -e "smtpd_tls_cert_file = /etc/letsencrypt/live/$HOSTNAME/fullchain.pem"
-postconf -e "smtpd_tls_key_file = /etc/letsencrypt/live/$HOSTNAME/privkey.pem"
+# --- Полностью создаём main.cf с корректной mydestination ---
+cat > /etc/postfix/main.cf <<EOF
+smtpd_banner = \$myhostname ESMTP
+biff = no
+append_dot_mydomain = no
+readme_directory = no
+compatibility_level = 3.6
+
+smtpd_tls_cert_file = /etc/letsencrypt/live/$HOSTNAME/fullchain.pem
+smtpd_tls_key_file = /etc/letsencrypt/live/$HOSTNAME/privkey.pem
+smtpd_tls_security_level = may
+
+smtp_tls_CApath=/etc/ssl/certs
+smtp_tls_security_level=may
+smtp_tls_session_cache_database = btree:\${data_directory}/smtp_scache
+
+smtpd_relay_restrictions = permit_mynetworks permit_sasl_authenticated defer_unauth_destination
+myhostname = $HOSTNAME
+alias_maps = hash:/etc/aliases
+alias_database = hash:/etc/aliases
+myorigin = /etc/mailname
+mydestination = \$myhostname, $HOSTNAME, $DOMAIN, localhost.\$mydomain, localhost
+relayhost =
+mynetworks = 127.0.0.0/8 [::ffff:127.0.0.0]/104 [::1]/128
+mailbox_size_limit = 0
+recipient_delimiter = +
+inet_interfaces = all
+inet_protocols = ipv4
+home_mailbox = Maildir/
+milter_default_action = accept
+milter_protocol = 2
+smtpd_milters = inet:localhost:12301
+non_smtpd_milters = inet:localhost:12301
+smtpd_tls_auth_only = yes
+smtpd_sasl_type = dovecot
+smtpd_sasl_path = private/auth
+smtpd_sasl_auth_enable = yes
+smtpd_tls_protocols = !SSLv2,!SSLv3,!TLSv1,!TLSv1.1
+smtpd_use_tls = yes
+EOF
 
 # --- master.cf submission/smtps ---
 if ! grep -q "submission inet" /etc/postfix/master.cf; then
