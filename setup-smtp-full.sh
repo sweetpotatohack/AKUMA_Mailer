@@ -208,6 +208,9 @@ systemctl enable opendkim postfix dovecot
 systemctl restart opendkim postfix dovecot
 
 # --- Firewall ---
+ufw allow 80/tcp
+ufw allow 443/tcp
+ufw allow 22/tcp
 ufw allow 25/tcp
 ufw allow 587/tcp
 ufw allow 465/tcp
