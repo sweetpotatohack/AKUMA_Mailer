@@ -4,7 +4,7 @@ tput civis 2>/dev/null
 
 # --- КИБЕРПАНК-СТАРТ ---
 glitch_lines=(
-  "Ξ Разогрев SSL-реактора... [жду Let's Encrypt]"
+  "Ξ Разогрев SSL-реактора... [жду Let’s Encrypt]"
   "Ξ Проверка DNS, шаманю PTR..."
   "Ξ Калибрую DKIM [выше, сильнее, валиднее]"
   "Ξ Ставлю ловушку на спам-фильтры..."
@@ -20,7 +20,7 @@ for line in "${glitch_lines[@]}"; do
   sleep 0.18
 done
 
-echo -e "\n\033[1;38;5;201mSMTP Deploy v4 :: Full Auto Edition :: for AKUMA\033[0m\n"
+echo -e "\n\033[1;38;5;201mSMTP Deploy v5 :: Fixed TLS Edition :: for AKUMA\033[0m\n"
 sleep 0.2
 
 # --- Конфиг ---
@@ -91,14 +91,18 @@ append_dot_mydomain = no
 readme_directory = no
 compatibility_level = 3.6
 
-# TLS настройки
+# TLS настройки (исправление разрыва соединения)
 smtpd_tls_cert_file = /etc/letsencrypt/live/$HOSTNAME/fullchain.pem
 smtpd_tls_key_file = /etc/letsencrypt/live/$HOSTNAME/privkey.pem
 smtpd_tls_security_level = may
 smtpd_tls_auth_only = yes
-smtpd_tls_protocols = !SSLv2,!SSLv3,!TLSv1,!TLSv1.1
-smtpd_tls_mandatory_protocols = !SSLv2,!SSLv3,!TLSv1,!TLSv1.1
+smtpd_tls_protocols = !SSLv2, !SSLv3, !TLSv1, !TLSv1.1
+smtpd_tls_mandatory_protocols = !SSLv2, !SSLv3, !TLSv1, !TLSv1.1
 smtpd_tls_exclude_ciphers = aNULL, LOW, EXP, MEDIUM, ADH, AECDH, MD5, DSS, ECDSA
+smtpd_tls_session_cache_database = btree:\${data_directory}/smtpd_scache
+smtpd_tls_session_cache_timeout = 3600s
+smtpd_tls_eecdh_grade = strong
+smtpd_tls_loglevel = 1
 smtpd_use_tls = yes
 
 # SASL аутентификация
@@ -147,6 +151,7 @@ submission inet n       -       y       -       -       smtpd
   -o smtpd_tls_security_level=encrypt
   -o smtpd_sasl_auth_enable=yes
   -o smtpd_client_restrictions=permit_sasl_authenticated,reject
+  -o smtpd_tls_session_cache_timeout=3600
   -o milter_macro_daemon_name=ORIGINATING
 
 smtps     inet  n       -       y       -       -       smtpd
@@ -154,6 +159,7 @@ smtps     inet  n       -       y       -       -       smtpd
   -o smtpd_tls_wrappermode=yes
   -o smtpd_sasl_auth_enable=yes
   -o smtpd_client_restrictions=permit_sasl_authenticated,reject
+  -o smtpd_tls_session_cache_timeout=3600
   -o milter_macro_daemon_name=ORIGINATING
 
 pickup    unix  n       -       y       60      1       pickup
@@ -312,7 +318,7 @@ swaks --to test@example.com --from $USERNAME@$DOMAIN --server $HOSTNAME \\
   --port 587 --auth LOGIN --auth-user $USERNAME --auth-password '$PASSWORD' --tls
 
 === Проверка TLS ===
-openssl s_client -connect $HOSTNAME:587 -starttls smtp
+openssl s_client -connect $HOSTNAME:587 -starttls smtp -servername $HOSTNAME
 EOF
 
 echo -e "\n[✔] SMTP сервер полностью настроен!"
@@ -327,6 +333,6 @@ echo -e "\n\033[1;32m[+] Проверь работу командами:\033[0m"
 echo "  swaks --to test@example.com --from $USERNAME@$DOMAIN --server $HOSTNAME \\"
 echo "    --port 587 --auth LOGIN --auth-user $USERNAME --auth-password '$PASSWORD' --tls"
 echo "  telnet $HOSTNAME 25"
-echo "  openssl s_client -connect $HOSTNAME:587 -starttls smtp"
+echo "  openssl s_client -connect $HOSTNAME:587 -starttls smtp -servername $HOSTNAME"
 
 tput cnorm 2>/dev/null
