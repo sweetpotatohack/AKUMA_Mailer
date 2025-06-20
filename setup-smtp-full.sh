@@ -11,19 +11,19 @@ cat << "EOF"
  ███████║██║ ╚═╝ ██║   ██║   ██║         ██████╔╝╚██████╔╝███████╗███████╗███████╗   ██║   ██║     ██║  ██║╚██████╔╝╚██████╔╝██║     
  ╚══════╝╚═╝     ╚═╝   ╚═╝   ╚═╝         ╚═════╝  ╚═════╝ ╚══════╝╚══════╝╚══════╝   ╚═╝   ╚═╝     ╚═╝  ╚═╝ ╚═════╝  ╚═════╝ ╚═╝     
                                                                                                                                         
-                    🔥 ФЕНИН BULLETPROOF SMTP 2.0 - ТЕПЕРЬ БЕЗ ГОВНА! 🔥
+                    🔥 ФЕНИН BULLETPROOF SMTP 3.0 - БЕЗ ЕБУЧИХ КОСЯКОВ! 🔥
                              Made by Fenya - legendary hacker & microservices guru
 EOF
 echo -e "\033[0m"
 
 # --- Конфигурация (ИЗМЕНИ ЭТИ ПАРАМЕТРЫ!) ---
-DOMAIN="${1:-example.com}"          
+DOMAIN="${1:-atianticahotels.com}"          
 HOSTNAME="mail.$DOMAIN"                     
-USERNAME="${2:-smtpuser}"                   
+USERNAME="${2:-support}"                   
 PASSWORD="${3:-$(openssl rand -base64 12)}" 
 DKIM_SELECTOR="mail"                        
 EMAIL="dmitriyvisotskiydr15061991@gmail.com"  # Твоя почта для Let's Encrypt
-SERVER_IP="${4:-$(curl -s ifconfig.me)}"   
+SERVER_IP="${4:-147.45.125.219}"   
 SSL_DIR="/etc/letsencrypt/live/$HOSTNAME"   # Сразу планируем Let's Encrypt
 
 echo -e "\033[1;33m=== КОНФИГУРАЦИЯ ===\033[0m"
@@ -62,9 +62,15 @@ systemctl stop postfix dovecot opendkim apache2 nginx 2>/dev/null || echo "Не�
 echo -e "\033[1;34m[2/15] Обновление системы и установка пакетов...\033[0m"
 apt-get update -qq
 apt-get upgrade -y -qq
+# Убираем конфликтующие пакеты
+apt-get remove --purge iptables-persistent netfilter-persistent -y 2>/dev/null || true
+
+# Создаем нужные директории заранее
+mkdir -p /etc/iptables
+
 DEBIAN_FRONTEND=noninteractive apt-get install -y \
   postfix dovecot-core dovecot-imapd dovecot-lmtpd opendkim opendkim-tools \
-  mailutils curl wget ufw iptables-persistent certbot dnsutils swaks net-tools telnet \
+  mailutils curl wget ufw certbot dnsutils swaks net-tools telnet \
   rsyslog logrotate fail2ban
 
 # --- Настройка hostname ---
@@ -117,7 +123,7 @@ cat > /etc/cron.d/certbot-renewal <<EOF
 EOF
 
 # --- Настройка фаервола и iptables (КРИТИЧНО!) ---
-echo -e "\033[1;34m[7/15] Настройка фаervola и iptables...\033[0m"
+echo -e "\033[1;34m[7/15] Настройка фаервола и iptables...\033[0m"
 
 # Очищаем старые правила
 iptables -F
@@ -691,7 +697,7 @@ fi
 
 # --- Тест отправки письма ---
 echo -e "\n\033[1;34mТест отправки локального письма...\033[0m"
-if command -v swaks >/dev/null 2>&1; then
+if command -v swaks > /dev/null 2>&1; then
   echo "test" | swaks --to $USERNAME@$DOMAIN --from test@$DOMAIN --server localhost --auth LOGIN --auth-user $USERNAME --auth-password "$PASSWORD" --tls || echo "Локальный тест не прошел"
 fi
 
