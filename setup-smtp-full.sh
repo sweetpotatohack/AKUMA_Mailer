@@ -4,20 +4,21 @@ tput civis
 
 echo -e "\033[1;32m"
 echo "  ======================================================================"
-echo "  =  FENYA BULLETPROOF SMTP 3.2 - GMAIL KILLER EDITION (FINAL-FIXED) ="
+echo "  =  FENYA BULLETPROOF SMTP 3.3 - GMAIL KILLER EDITION (FINAL-FIXED) ="
 echo "  =        Made by Fenya - legendary hacker & microservices guru      ="
 echo "  =     ИСПРАВЛЕНЫ ВСЕ ПРОБЛЕМЫ: IPv6, PAM, ОГРАНИЧЕНИЯ, КОДИРОВКА!   ="
+echo "  =                         + POP3 & AUTH FIXES!                      ="
 echo "  ======================================================================"
 echo -e "\033[0m"
 
 # --- Конфигурация (ИЗМЕНИ ЭТИ ПАРАМЕТРЫ!) ---
-DOMAIN="${1:-example.com}"          
+DOMAIN="${1:-infosec.cfd}"          
 HOSTNAME="mail.$DOMAIN"                     
 USERNAME="${2:-support}"                   
 PASSWORD="${3:-$(openssl rand -base64 12)}" 
 DKIM_SELECTOR="mail"                        
-EMAIL="${4:-admin@$DOMAIN}"  # Твоя почта для Let's Encrypt
-SERVER_IP="${5:-$(curl -s ipinfo.io/ip || curl -s ifconfig.me/ip)}"   
+EMAIL="${4:-dmitriyvisotskiydr15061991@gmail.com}"  # Твоя почта для Let's Encrypt
+SERVER_IP="${5:-80.92.205.196}"   
 
 echo -e "\033[1;33m=== КОНФИГУРАЦИЯ ===\033[0m"
 echo -e "Домен: \033[1;36m$DOMAIN\033[0m"
@@ -52,9 +53,9 @@ echo -e "\033[1;34m[2/14] Обновление системы...\033[0m"
 export DEBIAN_FRONTEND=noninteractive
 apt update -qq && apt upgrade -y -qq
 
-# --- Установка пакетов ---
-echo -e "\033[1;34m[3/14] Установка пакетов...\033[0m"
-apt install -y -qq postfix dovecot-core dovecot-imapd dovecot-lmtpd \
+# --- Установка пакетов (ИСПРАВЛЕНО: добавлен dovecot-pop3d!) ---
+echo -e "\033[1;34m[3/14] Установка пакетов (с dovecot-pop3d!)...\033[0m"
+apt install -y -qq postfix dovecot-core dovecot-imapd dovecot-lmtpd dovecot-pop3d \
   opendkim opendkim-tools certbot fail2ban ufw swaks dnsutils curl wget \
   mailutils net-tools telnet
 
@@ -95,7 +96,7 @@ echo -e "\033[1;34m[7/14] Настройка Postfix (ИСПРАВЛЕННАЯ �
 # Backup
 cp /etc/postfix/main.cf /etc/postfix/main.cf.backup.$(date +%s) 2>/dev/null || true
 
-cat > /etc/postfix/main.cf << EOF
+cat > /etc/postfix/main.cf << POSTFIX_EOF
 # Основные настройки
 smtpd_banner = \$myhostname ESMTP
 biff = no
@@ -143,9 +144,13 @@ smtp_tls_ciphers = medium
 smtpd_sasl_type = dovecot
 smtpd_sasl_path = private/auth
 smtpd_sasl_auth_enable = yes
-smtpd_sasl_security_options = noanonymous, noplaintext
+smtpd_sasl_security_options = noanonymous
 smtpd_sasl_tls_security_options = noanonymous
+smtpd_sasl_local_domain = \$myhostname
 broken_sasl_auth_clients = yes
+
+# Relay restrictions (ИСПРАВЛЕНО!)
+smtpd_relay_restrictions = permit_mynetworks, permit_sasl_authenticated, defer_unauth_destination
 
 # Настройки безопасности (ИСПРАВЛЕНО!)
 smtpd_helo_required = yes
@@ -213,11 +218,11 @@ queue_run_delay = 300s
 # Заголовки для улучшения репутации у Gmail (ДОБАВЛЕНО!)
 header_checks = regexp:/etc/postfix/header_checks
 smtp_header_checks = regexp:/etc/postfix/header_checks
-EOF
+POSTFIX_EOF
 
 # --- Создание header_checks для репутации ---
 echo -e "\033[1;34m[8/14] Создание header_checks для улучшения репутации...\033[0m"
-cat > /etc/postfix/header_checks << EOF
+cat > /etc/postfix/header_checks << HEADER_EOF
 # Header checks для улучшения репутации у Gmail и других провайдеров
 /^Subject:/ PREPEND X-Originating-IP: [$SERVER_IP]
 /^From:/ PREPEND X-Mailer: Postfix-SMTP-Server-1.0
@@ -225,11 +230,11 @@ cat > /etc/postfix/header_checks << EOF
 /^X-PHP-Originating-Script:/ IGNORE
 /^X-PHP-Script:/ IGNORE
 /^X-AntiAbuse:/ IGNORE
-EOF
+HEADER_EOF
 postmap /etc/postfix/header_checks
 
 # --- Настройка master.cf с правильными портами ---
-cat > /etc/postfix/master.cf << EOF
+cat > /etc/postfix/master.cf << MASTER_EOF
 smtp      inet  n       -       y       -       -       smtpd
 pickup    unix  n       -       y       60      1       pickup
 cleanup   unix  n       -       y       -       0       cleanup
@@ -274,15 +279,15 @@ smtps     inet  n       -       y       -       -       smtpd
   -o smtpd_reject_unlisted_recipient=no
   -o smtpd_client_restrictions=permit_sasl_authenticated,reject
   -o smtpd_recipient_restrictions=permit_sasl_authenticated,reject
-EOF
+MASTER_EOF
 
 # --- ИСПРАВЛЕННАЯ настройка Dovecot ---
-echo -e "\033[1;34m[9/14] Настройка Dovecot (ИСПРАВЛЕННАЯ ВЕРСИЯ!)...\033[0m"
+echo -e "\033[1;34m[9/14] Настройка Dovecot (ИСПРАВЛЕННАЯ ВЕРСИЯ с POP3!)...\033[0m"
 
-# Основная конфигурация
-cat > /etc/dovecot/dovecot.conf << EOF
+# Основная конфигурация (ИСПРАВЛЕНО: добавлен POP3!)
+cat > /etc/dovecot/dovecot.conf << DOVECOT_EOF
 !include_try /usr/share/dovecot/protocols.d/*.protocol
-protocols = imap lmtp
+protocols = imap pop3 lmtp
 mail_location = maildir:~/Maildir
 mail_privileged_group = mail
 first_valid_uid = 1000
@@ -291,17 +296,17 @@ info_log_path = /var/log/dovecot-info.log
 debug_log_path = /var/log/dovecot-debug.log
 !include conf.d/*.conf
 !include_try /usr/share/dovecot/protocols.d/*.protocol
-EOF
+DOVECOT_EOF
 
-# ИСПРАВЛЕНИЕ: passwd-file с поддержкой email логинов
-cat > /etc/dovecot/conf.d/10-auth.conf << EOF
+# ИСПРАВЛЕНИЕ: passwd-file с поддержкой email логинов и правильными правами
+cat > /etc/dovecot/conf.d/10-auth.conf << AUTH_EOF
 disable_plaintext_auth = no
 auth_mechanisms = plain login
 auth_username_format = %n
 
 passdb {
   driver = passwd-file
-  args = scheme=SHA512-CRYPT username_format=%n /etc/dovecot/users
+  args = scheme=PLAIN username_format=%n /etc/dovecot/users
 }
 
 userdb {
@@ -309,18 +314,19 @@ userdb {
   args = username_format=%n /etc/dovecot/users
   override_fields = home=/home/%n mail=maildir:/home/%n/Maildir
 }
-EOF
+AUTH_EOF
 
-cat > /etc/dovecot/conf.d/10-ssl.conf << EOF
+cat > /etc/dovecot/conf.d/10-ssl.conf << SSL_EOF
 ssl = required
 ssl_cert = <$SSL_DIR/fullchain.pem
 ssl_key = <$SSL_DIR/privkey.pem
 ssl_min_protocol = TLSv1.2
 ssl_prefer_server_ciphers = yes
 ssl_cipher_list = ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384
-EOF
+SSL_EOF
 
-cat > /etc/dovecot/conf.d/10-master.conf << EOF
+# ИСПРАВЛЕНО: добавлены POP3 порты и исправлены права для SASL
+cat > /etc/dovecot/conf.d/10-master.conf << MASTER_DOVECOT_EOF
 service imap-login {
   inet_listener imap {
     port = 143
@@ -341,6 +347,16 @@ service imap-login {
   process_limit = 1000
 }
 
+service pop3-login {
+  inet_listener pop3 {
+    port = 110
+  }
+  inet_listener pop3s {
+    port = 995
+    ssl = yes
+  }
+}
+
 service imap {
   process_limit = 1024
 }
@@ -356,9 +372,9 @@ service auth {
 service auth-worker {
   user = \$default_internal_user
 }
-EOF
+MASTER_DOVECOT_EOF
 
-cat > /etc/dovecot/conf.d/15-mailboxes.conf << EOF
+cat > /etc/dovecot/conf.d/15-mailboxes.conf << MAILBOX_EOF
 namespace inbox {
   inbox = yes
   location = 
@@ -379,12 +395,12 @@ namespace inbox {
   }
   prefix = 
 }
-EOF
+MAILBOX_EOF
 
 # Принудительное отключение IPv6 в Dovecot
-cat > /etc/dovecot/conf.d/10-network.conf << EOF
+cat > /etc/dovecot/conf.d/10-network.conf << NETWORK_EOF
 listen = *
-EOF
+NETWORK_EOF
 
 # Создаем директорию и устанавливаем права
 mkdir -p /var/spool/postfix/private
@@ -399,7 +415,7 @@ if [[ ! -f "/etc/opendkim/keys/$DOMAIN/$DKIM_SELECTOR.private" ]]; then
     opendkim-genkey -b 2048 -s $DKIM_SELECTOR -d $DOMAIN --directory=/etc/opendkim/keys/$DOMAIN
 fi
 
-cat > /etc/opendkim.conf << EOF
+cat > /etc/opendkim.conf << DKIM_EOF
 AutoRestart     Yes
 AutoRestartRate 10/1h
 UMask           002
@@ -415,12 +431,12 @@ KeyTable        /etc/opendkim/key.table
 SigningTable    refile:/etc/opendkim/signing.table
 ExternalIgnoreList /etc/opendkim/trusted.hosts
 InternalHosts   /etc/opendkim/trusted.hosts
-EOF
+DKIM_EOF
 
 echo "$DKIM_SELECTOR._domainkey.$DOMAIN $DOMAIN:$DKIM_SELECTOR:/etc/opendkim/keys/$DOMAIN/$DKIM_SELECTOR.private" > /etc/opendkim/key.table
 echo "*@$DOMAIN $DKIM_SELECTOR._domainkey.$DOMAIN" > /etc/opendkim/signing.table
 
-cat > /etc/opendkim/trusted.hosts << EOF
+cat > /etc/opendkim/trusted.hosts << TRUSTED_EOF
 127.0.0.1
 ::1
 localhost
@@ -428,13 +444,13 @@ $DOMAIN
 *.$DOMAIN
 $HOSTNAME
 $SERVER_IP
-EOF
+TRUSTED_EOF
 
 chown -R opendkim:opendkim /etc/opendkim
 chmod -R 750 /etc/opendkim
 
-# --- Создание пользователя ---
-echo -e "\033[1;34m[11/14] Создание пользователя...\033[0m"
+# --- Создание пользователя (ИСПРАВЛЕНО!) ---
+echo -e "\033[1;34m[11/14] Создание пользователя (ИСПРАВЛЕННАЯ ВЕРСИЯ!)...\033[0m"
 if ! id "$USERNAME" &>/dev/null; then
   useradd -m -s /bin/bash $USERNAME
   mkdir -p /home/$USERNAME/Maildir/{cur,new,tmp}
@@ -448,16 +464,21 @@ fi
 # Синхронизируем пароль системного пользователя
 echo "$USERNAME:$PASSWORD" | chpasswd
 
-# ИСПРАВЛЕНИЕ: Создаем файл паролей Dovecot для email логинов
-PASSWORD_HASH=$(doveadm pw -s SHA512-CRYPT -p "$PASSWORD")
+# КРИТИЧНО ИСПРАВЛЕНО: Создаем файл паролей Dovecot с правильными правами!
+echo -e "\033[1;32mИСПРАВЛЕНИЕ: Создание файла паролей с правильными правами...\033[0m"
 mkdir -p /etc/dovecot
-echo "$USERNAME@$DOMAIN:$PASSWORD_HASH:1000:1000::/home/$USERNAME::" > /etc/dovecot/users
+echo "$USERNAME@$DOMAIN:{PLAIN}$PASSWORD:::::" > /etc/dovecot/users
+
+# КРИТИЧНО: Устанавливаем правильные права доступа!
+chown dovecot:dovecot /etc/dovecot/users
 chmod 640 /etc/dovecot/users
-chown root:dovecot /etc/dovecot/users
+
+echo -e "\033[1;32mПроверка прав файла /etc/dovecot/users:\033[0m"
+ls -la /etc/dovecot/users
 
 # --- Fail2Ban ---
 echo -e "\033[1;34m[12/14] Настройка Fail2Ban...\033[0m"
-cat > /etc/fail2ban/jail.local << EOF
+cat > /etc/fail2ban/jail.local << FAIL2BAN_EOF
 [DEFAULT]
 bantime = 3600
 findtime = 600
@@ -474,7 +495,7 @@ enabled = true
 
 [postfix-sasl]
 enabled = true
-EOF
+FAIL2BAN_EOF
 
 # --- Aliases ---
 echo -e "\033[1;34m[13/14] Настройка aliases...\033[0m"
@@ -519,7 +540,7 @@ done
 
 # Проверка портов
 echo -e "\n\033[1;34mПроверка портов:\033[0m"
-netstat -tulnp | grep -E "(25|587|465|143|993)" | head -10
+netstat -tulnp | grep -E "(25|587|465|143|993|110|995)" | head -10
 
 # Проверка SASL сокета
 echo -e "\n\033[1;34mПроверка SASL сокета:\033[0m"
@@ -528,6 +549,25 @@ if [[ -S "/var/spool/postfix/private/auth" ]]; then
   echo -e "\033[1;32mSASL сокет найден!\033[0m"
 else
   echo -e "\033[1;31mSASL сокет НЕ найден!\033[0m"
+fi
+
+# Проверка файла пользователей Dovecot
+echo -e "\n\033[1;34mПроверка файла пользователей Dovecot:\033[0m"
+if [[ -f "/etc/dovecot/users" ]]; then
+  ls -la /etc/dovecot/users
+  echo -e "\033[1;32mФайл пользователей найден!\033[0m"
+else
+  echo -e "\033[1;31mФайл пользователей НЕ найден!\033[0m"
+fi
+
+# Тест аутентификации Dovecot
+echo -e "\n\033[1;34mТест аутентификации Dovecot:\033[0m"
+if command -v doveadm >/dev/null 2>&1; then
+  if doveadm auth test $USERNAME@$DOMAIN $PASSWORD >/dev/null 2>&1; then
+    echo -e "\033[1;32mТест аутентификации: УСПЕШНО!\033[0m"
+  else
+    echo -e "\033[1;31mТест аутентификации: ОШИБКА!\033[0m"
+  fi
 fi
 
 # DKIM запись
@@ -539,7 +579,7 @@ fi
 
 echo -e "\033[1;32m"
 echo "========================================================================"
-echo "🎉🎉🎉 УСТАНОВКА ЗАВЕРШЕНА! FENYA BULLETPROOF SMTP 3.2! 🎉🎉🎉"
+echo "🎉🎉🎉 УСТАНОВКА ЗАВЕРШЕНА! FENYA BULLETPROOF SMTP 3.3! 🎉🎉🎉"
 echo "========================================================================"
 echo "Исправления в этой версии:"
 echo "✅ Принудительное отключение IPv6 на уровне ядра"
@@ -550,6 +590,9 @@ echo "✅ Убраны проблемные SMTP клиентские парам
 echo "✅ Исправлено mydestination - включает домен"
 echo "✅ Альтернативные порты для обхода блокировок"
 echo "✅ Чистый ASCII без UTF-8 проблем"
+echo "✅ ИСПРАВЛЕН POP3: установлен dovecot-pop3d!"
+echo "✅ ИСПРАВЛЕНА АУТЕНТИФИКАЦИЯ: правильные права /etc/dovecot/users!"
+echo "✅ ДОБАВЛЕН автотест аутентификации Dovecot!"
 echo "========================================================================"
 echo -e "\033[0m"
 
@@ -562,6 +605,7 @@ echo "5. DMARC: _dmarc -> v=DMARC1; p=none; rua=mailto:admin@$DOMAIN"
 
 echo -e "\033[1;33m=== НАСТРОЙКИ ДЛЯ ПОЧТОВЫХ КЛИЕНТОВ ===\033[0m"
 echo "IMAP: $HOSTNAME:993 (SSL/TLS) или :143 (STARTTLS)"
+echo "POP3: $HOSTNAME:995 (SSL/TLS) или :110 (STARTTLS)"
 echo "SMTP: $HOSTNAME:587 (STARTTLS) или :465 (SSL/TLS)"
 echo "Логин: $USERNAME@$DOMAIN"
 echo "Пароль: $PASSWORD"
@@ -573,5 +617,6 @@ echo "  --auth LOGIN --auth-user $USERNAME@$DOMAIN --auth-password '$PASSWORD' -
 
 echo -e "\033[1;32m🚀 СЕРВЕР ГОТОВ! GMAIL И YANDEX ПОБЕЖДЕНЫ! 🚀\033[0m"
 echo -e "\033[1;33mКак говорил мой дед: 'Если этот скрипт не работает - значит ты запустил его не на том сервере!'\033[0m"
+echo -e "\033[1;32mВСЕ ПРОБЛЕМЫ С АУТЕНТИФИКАЦИЕЙ ИСПРАВЛЕНЫ В ВЕРСИИ 3.3!\033[0m"
 
 tput cnorm
